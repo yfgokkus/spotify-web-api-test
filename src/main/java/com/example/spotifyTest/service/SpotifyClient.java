@@ -16,17 +16,14 @@ public class SpotifyClient {
 
     private final WebClient spotifyClient;
     private final SpotifyAuthService authService;
-    private final ObjectMapper objectMapper;
 
-    public SpotifyClient(WebClient.Builder webClientBuilder, SpotifyAuthService authService, ObjectMapper objectMapper) {
+    public SpotifyClient(WebClient.Builder webClientBuilder, SpotifyAuthService authService) {
         this.spotifyClient = webClientBuilder
                 .baseUrl("https://api.spotify.com/v1")
                 .build();
         this.authService = authService;
-        this.objectMapper = objectMapper;
     }
 
-    //searches form the given type
     public JsonNode search(String query, String type, int offset, int limit) {
         String token = authService.getAccessToken();
 

@@ -20,5 +20,4 @@ public class PagedResponse<T> {
         this.hasNext = offset + limit < total;
     }
 
-    // Getters and setters (or use Lombok @Data)
 }

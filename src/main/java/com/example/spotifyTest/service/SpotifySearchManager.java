@@ -38,17 +38,14 @@ public class SpotifySearchManager {
         boolean isOnlyPlaylist = typeList != null && typeList.size() == 1 && typeList.contains("playlist");
         boolean isMultiType = typeList != null && typeList.size() > 1;
 
-        // Case 1: No types specified — fetch playlists and others asynchronously
         if (isEmpty) {
             return shallowSearch(q, offset, limit);
         }
 
-        // Case 2: Only playlists requested — use compensation and extract real offset/limit
         if (isOnlyPlaylist) {
             return safePlaylistSearch(q, offset, limit);
         }
 
-        // Multi-type (excluding playlist)
         if (isMultiType && !typeList.contains("playlist")) {
             return multiTypeNullSafeSearch(q, typeList, offset, limit);
         }
@@ -57,7 +54,6 @@ public class SpotifySearchManager {
     }
 
     public Object multiTypeNullSafeSearch(String q, List<String> types , int offset, int limit) {
-        // Case 3: Multi-type (without playlist) or single non-playlist type
         String queryTypes = String.join(",", types);
         JsonNode result = spotifyClient.search(q, queryTypes, offset, limit);
 
@@ -65,16 +61,14 @@ public class SpotifySearchManager {
                 mapper.mapTracks(result),
                 mapper.mapAlbums(result),
                 mapper.mapArtists(result),
-                null // playlists not fetched
+                null
         );
     }
 
     public Object singleTypeNullSafeSearch(String q, List<String> types , int offset, int limit) {
-        // Case 3: Multi-type (without playlist) or single non-playlist type
         String queryTypes = String.join(",", types);
         JsonNode result = spotifyClient.search(q, queryTypes, offset, limit);
 
-        // Case 4: Single non-playlist type
         String singleType = types.getFirst();
         int total = result.path(singleType + "s").path("total").asInt();
 
@@ -181,7 +175,6 @@ public class SpotifySearchManager {
                 .toList();
     }
 
-    // Can be enhanced with validation strategy for different types
     private boolean isValidItem(JsonNode item) {
         return !item.isNull() && item.hasNonNull("id") && item.hasNonNull("name");
     }
