@@ -17,7 +17,7 @@ public class SpotifyMapper {
             throw new InvalidSpotifyContentException("Cannot map to paged content. Item list is either empty or null");
         }
 
-        JsonNode content = result.path(type + "s");
+        JsonNode content = result.path(type.value() + "s");
         int offset = content.path("offset").asInt();
         int  limit = content.path("limit").asInt();
         long total = content.path("total").asLong();

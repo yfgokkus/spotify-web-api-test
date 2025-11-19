@@ -22,13 +22,18 @@ public class SpotifyContentDto {
     private boolean failed;
     private String message;
 
+    public static SpotifyContentDto failed(String type, String uri, String message){
+        return new SpotifyContentDto(type, uri, message);
+    }
 
     // --- CONSTRUCTOR FOR FAILED FETCHES --- //
-    public SpotifyContentDto(String type, String uri, String message) {
+    private SpotifyContentDto(String type, String uri, String message) {
         this.type = type;
         this.uri = uri;
         this.failed = true;
         this.message = message;
     }
+
+
 }
 

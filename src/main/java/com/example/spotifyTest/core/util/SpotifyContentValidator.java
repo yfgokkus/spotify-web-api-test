@@ -27,10 +27,10 @@ public class SpotifyContentValidator {
         String type  = content.getType();
         if (content instanceof PlaylistDto contentDto) {
             if (contentDto.getTracks().isEmpty()) {
-                return new SpotifyContentDto(type, content.getUri(), "No tracks found");
+                return SpotifyContentDto.failed(type, content.getUri(), "No tracks found");
             }
             if (contentDto.getTracks().size() > MULTI_TRACK_CONTENT_LIMIT) {
-                return new SpotifyContentDto(type, content.getUri(), "Invalid playlists size");
+                return SpotifyContentDto.failed(type, content.getUri(), "Invalid playlists size");
             }
         }
         return content;

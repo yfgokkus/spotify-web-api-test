@@ -32,18 +32,18 @@ public class SpotifyContentService {
                 case "playlist" -> spotifyMapper.toPlaylistDto(spotifyClient.getPlaylist(id));
                 default -> {
                     log.error("Invalid Spotify Content Type: {}", type);
-                    yield new SpotifyContentDto(type, uri, "Invalid spotify content type");
+                    yield SpotifyContentDto.failed(type, uri, "Invalid spotify content type");
                 }
             };
         } catch (WebClientResponseException.NotFound e) {
             log.warn("Spotify {} with ID {} not found: {}", type, id, e.getMessage());
-            return new SpotifyContentDto(type, uri, "Spotify content with id " + id + "and type " + type + " not found");
+            return SpotifyContentDto.failed(type, uri, "Spotify content with id " + id + "and type " + type + " not found");
         } catch (WebClientResponseException e) {
             log.error("Spotify API error fetching {} with ID {}: {}", type, id, e.getMessage());
-            return new SpotifyContentDto(type, uri, "Spotify API error fetching the given uri");
+            return SpotifyContentDto.failed(type, uri, "Spotify API error fetching the given uri");
         } catch (RuntimeException e) {
             log.error("Unexpected error fetching {} with ID {}: {}", type, id, e.getMessage());
-            return new SpotifyContentDto(type, uri, "Unexpected error fetching the given uri");
+            return SpotifyContentDto.failed(type, uri, "Unexpected error fetching the given uri");
         }
     }
 }
