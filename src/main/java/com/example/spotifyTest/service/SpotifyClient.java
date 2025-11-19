@@ -1,17 +1,13 @@
 package com.example.spotifyTest.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
-
 @Service
+@Slf4j
 public class SpotifyClient {
 
     private final WebClient spotifyClient;
@@ -42,11 +38,26 @@ public class SpotifyClient {
                 .bodyToMono(JsonNode.class)
                 .block();
     }
-    public JsonNode getAlbumById(String albumId) {
+
+    public JsonNode getAlbum(String id) {
+        return requestBuilder("albums", id);
+    }
+
+    public JsonNode getTrack(String id) {
+        return requestBuilder("tracks", id);
+    }
+
+    public JsonNode getPlaylist(String id) { return requestBuilder("playlists", id); }
+
+    public JsonNode getArtist(String id) {
+        return requestBuilder("artists", id);
+    }
+
+    private JsonNode requestBuilder(String type, String id) {
         String token = authService.getAccessToken();
 
         return spotifyClient.get()
-                .uri("/albums/{id}", albumId)
+                .uri("/{type}/{id}", type, id)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                 .retrieve()
                 .bodyToMono(JsonNode.class)

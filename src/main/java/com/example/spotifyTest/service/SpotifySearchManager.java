@@ -1,8 +1,10 @@
 package com.example.spotifyTest.service;
 
 import com.example.spotifyTest.core.util.SpotifyMapper;
-import com.example.spotifyTest.model.DTOs.MultiTypeContentDto;
-import com.example.spotifyTest.model.PagedResponse;
+import com.example.spotifyTest.model.spotify.ContentType;
+import com.example.spotifyTest.model.spotify.PagedSpotifyContent;
+import com.example.spotifyTest.model.spotify.ShallowSearchDto;
+import com.example.spotifyTest.model.spotify.SpotifyContentDto;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -11,133 +13,99 @@ import org.springframework.stereotype.Service;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.stream.Collectors;
 
 @Service
 public class SpotifySearchManager {
 
     private final SpotifyClient spotifyClient;
-    private final SpotifyMapper mapper;
+    private final SpotifyMapper spotifyMapper;
     private final ObjectMapper objectMapper;
 
-    private final List<String> contentTypes = List.of("track", "album", "artist", "playlist");
-
-
-    public SpotifySearchManager(SpotifyClient spotifyClient, SpotifyMapper mapper, ObjectMapper objectMapper) {
+    public SpotifySearchManager(SpotifyClient spotifyClient, SpotifyMapper spotifyMapper, ObjectMapper objectMapper) {
         this.spotifyClient = spotifyClient;
-        this.mapper = mapper;
+        this.spotifyMapper = spotifyMapper;
         this.objectMapper = objectMapper;
     }
 
-    public Object search(String q, List<String> types, int offset, int limit) {
-        List<String> typeList = validateTypes(types);
-
-        boolean isEmpty = typeList == null || typeList.isEmpty();
-        boolean isOnlyPlaylist = typeList != null && typeList.size() == 1 && typeList.contains("playlist");
-        boolean isMultiType = typeList != null && typeList.size() > 1;
-
-        if (isEmpty) {
-            return shallowSearch(q, offset, limit);
+    public PagedSpotifyContent<? extends SpotifyContentDto> search(String q, ContentType type, int offset, int limit) {
+        if (type == ContentType.PLAYLIST) {
+            JsonNode playlists = compensatedPlaylistSearch(q, offset, limit);
+            return spotifyMapper.toPagedSpotifyContent(ContentType.PLAYLIST, playlists);
         }
 
-        if (isOnlyPlaylist) {
-            return safePlaylistSearch(q, offset, limit);
-        }
+        JsonNode result = spotifyClient.search(q, type.value(), offset, limit);
 
-        if (isMultiType && !typeList.contains("playlist")) {
-            return multiTypeNullSafeSearch(q, typeList, offset, limit);
-        }
-
-        return singleTypeNullSafeSearch(q, typeList, offset, limit);
+        return spotifyMapper.toPagedSpotifyContent(type, result);
     }
 
-    public Object multiTypeNullSafeSearch(String q, List<String> types , int offset, int limit) {
-        String queryTypes = String.join(",", types);
-        JsonNode result = spotifyClient.search(q, queryTypes, offset, limit);
+    public ShallowSearchDto shallowSearch(String q, int limit) {
+        // Default to all content types if empty
+        JsonNode playlistNode;
+        JsonNode others;
 
-        return new MultiTypeContentDto(
-                mapper.mapTracks(result),
-                mapper.mapAlbums(result),
-                mapper.mapArtists(result),
-                null
-        );
-    }
+        Set<String> types = ContentType.valuesSet();
 
-    public Object singleTypeNullSafeSearch(String q, List<String> types , int offset, int limit) {
-        String queryTypes = String.join(",", types);
-        JsonNode result = spotifyClient.search(q, queryTypes, offset, limit);
+        Set<String> nonPlaylistTypes = types.stream()
+                .filter(t -> !"playlist".equals(t))
+                .collect(Collectors.toSet());
 
-        String singleType = types.getFirst();
-        int total = result.path(singleType + "s").path("total").asInt();
-
-        return mapper.mapToPagedResponse(singleType, result, offset, limit, total);
-    }
-
-    public Object shallowSearch(String q, int offset, int limit) {
-        CompletableFuture<JsonNode> playlistFuture = CompletableFuture.supplyAsync(
-                () -> compensatedPlaylistSearch(q, offset, limit)
+        CompletableFuture<JsonNode> playlistsFuture = CompletableFuture.supplyAsync(
+                () -> compensatedPlaylistSearch(q, 0, limit)
         );
 
         CompletableFuture<JsonNode> othersFuture = CompletableFuture.supplyAsync(
-                () -> spotifyClient.search(q, "track,album,artist", offset, limit)
+                () -> {
+                    String queryTypes = String.join(",", nonPlaylistTypes);
+                    return spotifyClient.search(q, queryTypes, 0, limit);
+                }
         );
 
-        CompletableFuture.allOf(playlistFuture, othersFuture).join();
-
         try {
-            JsonNode playlists = playlistFuture.get();
-            JsonNode others = othersFuture.get();
+            playlistNode = playlistsFuture.get();
+            others = othersFuture.get();
 
-            return new MultiTypeContentDto(
-                    mapper.mapTracks(others),
-                    mapper.mapAlbums(others),
-                    mapper.mapArtists(others),
-                    mapper.mapPlaylists(playlists)
-            );
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new RuntimeException("Async search was interrupted", e);
+            throw new RuntimeException("Async multi-type playlist search interrupted", e);
         } catch (ExecutionException e) {
-            throw new RuntimeException("Async search failed", e.getCause());
+            throw new RuntimeException("Async multi-type playlist search failed", e.getCause());
         }
+
+        return new ShallowSearchDto(
+                spotifyMapper.toTrackDtoList(others),
+                spotifyMapper.toAlbumDtoList(others),
+                spotifyMapper.toArtistDtoList(others),
+                spotifyMapper.toPlaylistDtoList(playlistNode)
+        );
     }
 
-    private Object safePlaylistSearch(String q, int offset, int limit) {
-        JsonNode playlistResult = compensatedPlaylistSearch(q, offset, limit);
-        JsonNode playlistsNode = playlistResult.path("playlists");
-
-        int actualOffset = playlistsNode.path("offset").asInt();
-        int actualLimit = playlistsNode.path("limit").asInt();
-        int total = playlistsNode.path("total").asInt();
-
-        return new PagedResponse<>(mapper.mapPlaylists(playlistResult), actualOffset, actualLimit, total);
-    }
-
-    public JsonNode compensatedPlaylistSearch(String query, int offset, int desiredLimit) {
+    private JsonNode compensatedPlaylistSearch(String query, int offset, int desiredLimit) {
         int batchSize = desiredLimit + 5;
-        int actualTotal = 0;
-        int consumed = 0;
+        long total = 0;
+        int scanned = 0;
 
         ArrayNode validItems = objectMapper.createArrayNode();
 
         while (validItems.size() < desiredLimit) {
-            JsonNode response = spotifyClient.search(query, "playlist", offset + consumed, batchSize);
-            JsonNode typeNode = response.path("playlist" + "s"); // e.g. playlists, episodes
-            JsonNode items = typeNode.path("items");
+            JsonNode response = spotifyClient.search(query, "playlist", offset + scanned, batchSize);
+            JsonNode playlistNode = response.path("playlists");
+            JsonNode playlists = playlistNode.path("items");
 
-            if (actualTotal == 0) {
-                actualTotal = typeNode.path("total").asInt();
+            if (total == 0) {
+                total = playlistNode.path("total").asInt();
             }
 
-            if (items.isEmpty()) {
+            if (playlists.isEmpty()) {
                 break;
             }
 
-            for (int i = 0; i < items.size(); i++) {
-                JsonNode item = items.get(i);
-                consumed++;
+            for (int i = 0; i < playlists.size(); i++) {
+                JsonNode item = playlists.get(i);
+                scanned++;
 
                 if (isValidItem(item)) {
                     validItems.add(item);
@@ -147,18 +115,24 @@ public class SpotifySearchManager {
                 }
             }
 
-            if (offset + consumed >= actualTotal) {
+            if (offset + scanned >= total) {
                 break;
             }
+
         }
 
-        int nextOffset = offset + consumed;
+        int newOffset = offset + scanned;
+
+        return buildResponseJson(query, newOffset, desiredLimit, total, validItems);
+    }
+
+    private JsonNode buildResponseJson(String query, int newOffset, int desiredLimit, long total, ArrayNode validItems) {
 
         ObjectNode patchedContentNode = objectMapper.createObjectNode();
-        patchedContentNode.put("href", buildHref(query, "playlist", offset, desiredLimit));
+        patchedContentNode.put("href", buildHrefPlaylist(query, newOffset, desiredLimit));
         patchedContentNode.put("limit", desiredLimit);
-        patchedContentNode.put("offset", nextOffset);
-        patchedContentNode.put("total", actualTotal);
+        patchedContentNode.put("offset", newOffset);
+        patchedContentNode.put("total", total);
         patchedContentNode.set("items", validItems);
 
         ObjectNode root = objectMapper.createObjectNode();
@@ -167,21 +141,13 @@ public class SpotifySearchManager {
         return root;
     }
 
-    private List<String> validateTypes(List<String> types) {
-        if (types == null) return List.of();
-        return types.stream()
-                .map(String::toLowerCase)
-                .filter(contentTypes::contains)
-                .toList();
-    }
-
     private boolean isValidItem(JsonNode item) {
         return !item.isNull() && item.hasNonNull("id") && item.hasNonNull("name");
     }
 
-    private String buildHref(String query, String type, int offset, int limit) {
+    private String buildHrefPlaylist(String query, int offset, int limit) {
         return String.format("https://api.spotify.com/v1/search?q=%s&type=%s&limit=%d&offset=%d",
-                URLEncoder.encode(query, StandardCharsets.UTF_8), type, limit, offset);
+                URLEncoder.encode(query, StandardCharsets.UTF_8), "playlist", limit, offset);
     }
 }
 
